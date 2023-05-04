@@ -470,30 +470,15 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				prevReserved := ue.ReservedQuota[rg]
 				usedQuota := int64(totalUsaedUnit * ue.UnitCost[rg])
 				ue.ReservedQuota[rg] -= usedQuota
-
 				insufficient := usedQuota - prevReserved
-				if insufficient > 0 {
-					// make sure that the next reserved quota is bigger then the next used quota
-					reserveQuota := prevReserved + insufficient*3
-					ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
-						RatingGroup: datatype.Unsigned32(rg),
-						// Before reserve, first deduct the insufficient from the quota
-						RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
-							CCTotalOctets: datatype.Unsigned64(reserveQuota),
-						},
-					}
-				} else {
-					// If the reserved quota is bigger then the used quota,
-					// replenish the used quota to the ReservedQuota
-					// so that ReservedQuota remains the same
-					ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
-						RatingGroup: datatype.Unsigned32(rg),
-						RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
-							CCTotalOctets: datatype.Unsigned64(usedQuota),
-						},
-					}
 
-					logger.ChargingdataPostLog.Tracef("still remain reserved quota, replenish used quota: %v", usedQuota)
+				requestedQuota := int64(unitUsage.RequestedUnit.TotalVolume*int32(ue.UnitCost[rg])) + insufficient
+
+				ccr.MultipleServicesCreditControl = &charging_datatype.MultipleServicesCreditControl{
+					RatingGroup: datatype.Unsigned32(rg),
+					RequestedServiceUnit: &charging_datatype.RequestedServiceUnit{
+						CCTotalOctets: datatype.Unsigned64(requestedQuota),
+					},
 				}
 			}
 
@@ -502,6 +487,7 @@ func sessionChargingReservation(chargingData models.ChargingDataRequest) ([]mode
 				logger.ChargingdataPostLog.Errorf("SendAccountDebitRequest err: %+v", err)
 				continue
 			}
+			logger.ChargingdataPostLog.Tracef("reserved Unit: %d", acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
 
 			ue.ReservedQuota[rg] += int64(acctDebitRsp.MultipleServicesCreditControl.GrantedServiceUnit.CCTotalOctets)
 
